@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
+	"github.com/grafana/dskit/flagext"
 	"github.com/grafana/dskit/limiter"
 	"github.com/grafana/dskit/ring"
 	ring_client "github.com/grafana/dskit/ring/client"
@@ -63,9 +64,6 @@ const (
 )
 
 const (
-	typeSamples  = "samples"
-	typeMetadata = "metadata"
-
 	instanceIngestionRateTickInterval = time.Second
 )
 
@@ -113,8 +111,6 @@ type Distributor struct {
 	dedupedSamples                   *prometheus.CounterVec
 	labelsHistogram                  prometheus.Histogram
 	sampleDelayHistogram             prometheus.Histogram
-	ingesterAppends                  *prometheus.CounterVec
-	ingesterAppendFailures           *prometheus.CounterVec
 	replicationFactor                prometheus.Gauge
 	latestSeenSampleTimestampPerUser *prometheus.GaugeVec
 }
@@ -129,7 +125,7 @@ type Config struct {
 	MaxRecvMsgSize int           `yaml:"max_recv_msg_size" category:"advanced"`
 	RemoteTimeout  time.Duration `yaml:"remote_timeout" category:"advanced"`
 
-	ExtendWrites bool `yaml:"extend_writes" category:"advanced"`
+	ExtendWrites bool `yaml:"extend_writes" category:"advanced" doc:"hidden"` // TODO Deprecated: remove in Mimir 2.3.0
 
 	// Distributors ring
 	DistributorRing RingConfig `yaml:"ring"`
@@ -165,7 +161,7 @@ func (cfg *Config) RegisterFlags(f *flag.FlagSet, logger log.Logger) {
 
 	f.IntVar(&cfg.MaxRecvMsgSize, "distributor.max-recv-msg-size", 100<<20, "remote_write API max receive message size (bytes).")
 	f.DurationVar(&cfg.RemoteTimeout, "distributor.remote-timeout", 20*time.Second, "Timeout for downstream ingesters.")
-	f.BoolVar(&cfg.ExtendWrites, "distributor.extend-writes", true, "Try writing to an additional ingester in the presence of an ingester not in the ACTIVE state. It is useful to disable this along with -ingester.ring.unregister-on-shutdown=false in order to not spread samples to extra ingesters during rolling restarts with consistent naming.")
+	flagext.DeprecatedFlag(f, "distributor.extend-writes", "Deprecated: this setting was used to try writing to an additional ingester in the presence of an ingester not in the ACTIVE state. Mimir now behaves as this setting is always disabled.", logger)
 	f.Float64Var(&cfg.InstanceLimits.MaxIngestionRate, "distributor.instance-limits.max-ingestion-rate", 0, "Max ingestion rate (samples/sec) that this distributor will accept. This limit is per-distributor, not per-tenant. Additional push requests will be rejected. Current ingestion rate is computed as exponentially weighted moving average, updated every second. 0 = unlimited.")
 	f.IntVar(&cfg.InstanceLimits.MaxInflightPushRequests, "distributor.instance-limits.max-inflight-push-requests", 2000, "Max inflight push requests that this distributor can handle. This limit is per-distributor, not per-tenant. Additional requests will be rejected. 0 = unlimited.")
 }
@@ -310,16 +306,6 @@ func New(cfg Config, clientConfig ingester_client.Config, limits *validation.Ove
 				60 * 60 * 24, // 24h
 			},
 		}),
-		ingesterAppends: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
-			Namespace: "cortex",
-			Name:      "distributor_ingester_appends_total",
-			Help:      "The total number of batch appends sent to ingesters.",
-		}, []string{"ingester", "type"}),
-		ingesterAppendFailures: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
-			Namespace: "cortex",
-			Name:      "distributor_ingester_append_failures_total",
-			Help:      "The total number of failed batch appends sent to ingesters.",
-		}, []string{"ingester", "type"}),
 		replicationFactor: promauto.With(reg).NewGauge(prometheus.GaugeOpts{
 			Namespace: "cortex",
 			Name:      "distributor_replication_factor",
@@ -810,16 +796,11 @@ func (d *Distributor) PushWithCleanup(ctx context.Context, req *mimirpb.WriteReq
 	keys := append(seriesKeys, metadataKeys...)
 	initialMetadataIndex := len(seriesKeys)
 
-	op := ring.WriteNoExtend
-	if d.cfg.ExtendWrites {
-		op = ring.Write
-	}
-
 	// we must not re-use buffers now until all DoBatch goroutines have finished,
 	// so set this flag false and pass cleanup() to DoBatch.
 	cleanupInDefer = false
 
-	err = ring.DoBatch(ctx, op, subRing, keys, func(ingester ring.InstanceDesc, indexes []int) error {
+	err = ring.DoBatch(ctx, ring.WriteNoExtend, subRing, keys, func(ingester ring.InstanceDesc, indexes []int) error {
 		timeseries := make([]mimirpb.PreallocTimeseries, 0, len(indexes))
 		var metadata []*mimirpb.MetricMetadata
 
@@ -885,19 +866,6 @@ func (d *Distributor) send(ctx context.Context, ingester ring.InstanceDesc, time
 		Source:     source,
 	}
 	_, err = c.Push(ctx, &req)
-
-	if len(metadata) > 0 {
-		d.ingesterAppends.WithLabelValues(ingester.Addr, typeMetadata).Inc()
-		if err != nil {
-			d.ingesterAppendFailures.WithLabelValues(ingester.Addr, typeMetadata).Inc()
-		}
-	}
-	if len(timeseries) > 0 {
-		d.ingesterAppends.WithLabelValues(ingester.Addr, typeSamples).Inc()
-		if err != nil {
-			d.ingesterAppendFailures.WithLabelValues(ingester.Addr, typeSamples).Inc()
-		}
-	}
 
 	return err
 }

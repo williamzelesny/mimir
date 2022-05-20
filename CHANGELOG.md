@@ -2,6 +2,25 @@
 
 ## Grafana Mimir - main / unreleased
 
+### Grafana Mimir
+
+* [CHANGE] Increased default configuration for `-server.grpc-max-recv-msg-size-bytes` and `-server.grpc-max-send-msg-size-bytes` from 4MB to 100MB. #1883
+* [ENHANCEMENT] Store-gateway: Add the experimental ability to run requests in a dedicated OS thread pool. This feature can be configured using `-store-gateway.thread-pool-size` and is disabled by default. Replaces the ability to run index header operations in a dedicated thread pool. #1660 #1812
+* [BUGFIX] Fix regexp parsing panic for regexp label matchers with start/end quantifiers. #1883
+* [BUGFIX] Ingester: fixed deceiving error log "failed to update cached shipped blocks after shipper initialisation", occurring for each new tenant in the ingester. #1893
+
+### Mixin
+
+* [CHANGE] Split `mimir_queries` rules group into `mimir_queries` and `mimir_ingester_queries` to keep number of rules per group within the default per-tenant limit. #1885
+* [ENHANCEMENT] Dashboards: Add config option `datasource_regex` to customise the regular expression used to select valid datasources for Mimir dashboards. #1802
+* [ENHANCEMENT] Alerts: Add `MimirStoreGatewayNoSyncedTenants` alert that fires when there is a store-gateway owning no tenants. #1882
+* [BUGFIX] Fix `container_memory_usage_bytes:sum` recording rule #1865
+* [BUGFIX] Fix `MimirGossipMembersMismatch` alerts if Mimir alertmanager is activated #1870
+* [BUGFIX] Fix `MimirRulerMissedEvaluations` to show % of missed alerts as a value between 0 and 100 instead of 0 and 1. #1895
+
+## 2.1.0-rc.0
+
+### Grafana Mimir
 * [CHANGE] Compactor: No longer upload debug meta files to object storage. #1257
 * [CHANGE] Default values have changed for the following settings: #1547
     - `-alertmanager.alertmanager-client.grpc-max-recv-msg-size` now defaults to 100 MiB (previously was not configurable and set to 16 MiB)
@@ -27,17 +46,30 @@
 * [CHANGE] Querier / Ruler: removed the following metrics tracking number of query requests send to each ingester. You can use `cortex_request_duration_seconds_count{route=~"/cortex.Ingester/(QueryStream|QueryExemplars)"}` instead. #1797
   * `cortex_distributor_ingester_queries_total`
   * `cortex_distributor_ingester_query_failures_total`
+* [CHANGE] Distributor: removed the following metrics tracking the number of requests from a distributor to ingesters: #1799
+  * `cortex_distributor_ingester_appends_total`
+  * `cortex_distributor_ingester_append_failures_total`
+* [CHANGE] Distributor / Ruler: deprecated `-distributor.extend-writes`. Now Mimir always behaves as if this setting was set to `false`, which we expect to be safe for every Mimir cluster setup. #1856
 * [FEATURE] Querier: Added support for [streaming remote read](https://prometheus.io/blog/2019/10/10/remote-read-meets-streaming/). Should be noted that benefits of chunking the response are partial here, since in a typical `query-frontend` setup responses will be buffered until they've been completed. #1735
 * [FEATURE] Ruler: Allow setting `evaluation_delay` for each rule group via rules group configuration file. #1474
-* [FEATURE] Ruler: Added support for expression remote evaluation. #1536
+* [FEATURE] Ruler: Added support for expression remote evaluation. #1536 #1818
   * The following CLI flags (and their respective YAML config options) have been added:
     * `-ruler.query-frontend.address`
-    * `-ruler.query-frontend.tls-enabled`
-    * `-ruler.query-frontend.tls-ca-path`
-    * `-ruler.query-frontend.tls-cert-path`
-    * `-ruler.query-frontend.tls-key-path`
-    * `-ruler.query-frontend.tls-server-name`
-    * `-ruler.query-frontend.tls-insecure-skip-verify`
+    * `-ruler.query-frontend.grpc-client-config.grpc-max-recv-msg-size`
+    * `-ruler.query-frontend.grpc-client-config.grpc-max-send-msg-size`
+    * `-ruler.query-frontend.grpc-client-config.grpc-compression`
+    * `-ruler.query-frontend.grpc-client-config.grpc-client-rate-limit`
+    * `-ruler.query-frontend.grpc-client-config.grpc-client-rate-limit-burst`
+    * `-ruler.query-frontend.grpc-client-config.backoff-on-ratelimits`
+    * `-ruler.query-frontend.grpc-client-config.backoff-min-period`
+    * `-ruler.query-frontend.grpc-client-config.backoff-max-period`
+    * `-ruler.query-frontend.grpc-client-config.backoff-retries`
+    * `-ruler.query-frontend.grpc-client-config.tls-enabled`
+    * `-ruler.query-frontend.grpc-client-config.tls-ca-path`
+    * `-ruler.query-frontend.grpc-client-config.tls-cert-path`
+    * `-ruler.query-frontend.grpc-client-config.tls-key-path`
+    * `-ruler.query-frontend.grpc-client-config.tls-server-name`
+    * `-ruler.query-frontend.grpc-client-config.tls-insecure-skip-verify`
 * [FEATURE] Distributor: Added the ability to forward specifics metrics to alternative remote_write API endpoints. #1052
 * [FEATURE] Ingester: Active series custom trackers now supports runtime tenant-specific overrides. The configuration has been moved to limit config, the ingester config has been deprecated.  #1188
 * [ENHANCEMENT] Alertmanager API: Concurrency limit for GET requests is now configurable using `-alertmanager.max-concurrent-get-requests-per-tenant`. #1547
@@ -52,9 +84,10 @@
   - `-alertmanager.alertmanager-client.grpc-max-recv-msg-size`
   - `-alertmanager.alertmanager-client.grpc-max-send-msg-size`
 * [ENHANCEMENT] Ruler: Add more detailed query information to ruler query stats logging. #1411
-* [ENHANCEMENT] Admin: Admin API now has some styling. #1482 #1549
+* [ENHANCEMENT] Admin: Admin API now has some styling. #1482 #1549 #1821 #1824
 * [ENHANCEMENT] Alertmanager: added `insight=true` field to alertmanager dispatch logs. #1379
 * [ENHANCEMENT] Store-gateway: Add the experimental ability to run index header operations in a dedicated thread pool. This feature can be configured using `-blocks-storage.bucket-store.index-header-thread-pool-size` and is disabled by default. #1660
+* [ENHANCEMENT] Store-gateway: don't drop all blocks if instance finds itself as unhealthy or missing in the ring. #1806 #1823
 * [ENHANCEMENT] Querier: wait until inflight queries are completed when shutting down queriers. #1756 #1767
 * [BUGFIX] Query-frontend: do not shard queries with a subquery unless the subquery is inside a shardable aggregation function call. #1542
 * [BUGFIX] Query-frontend: added `component=query-frontend` label to results cache memcached metrics to fix a panic when Mimir is running in single binary mode and results cache is enabled. #1704
@@ -62,12 +95,37 @@
 * [BUGFIX] Multikv: Fix panic when using using runtime config to set primary KV store used by `multi` KV. #1587
 * [BUGFIX] Multikv: Fix watching for runtime config changes in `multi` KV store in ruler and querier. #1665
 * [BUGFIX] Memcached: allow to use CNAME DNS records for the memcached backend addresses. #1654
+* [BUGFIX] Querier: fixed temporary partial query results when shuffle sharding is enabled and hash ring backend storage is flushed / reset. #1829
+* [BUGFIX] Alertmanager: prevent more file traversal cases related to template names. #1833
+* [BUGFUX] Alertmanager: Allow usage with `-alertmanager-storage.backend=local`. Note that when using this storage type, the Alertmanager is not able persist state remotely, so it not recommended for production use. #1836
+* [BUGFIX] Alertmanager: Do not validate alertmanager configuration if it's not running. #1835
 
 ### Mixin
 
 * [CHANGE] Dashboards: Remove per-user series legends from Tenants dashboard. #1605
 * [CHANGE] Dashboards: Show in-memory series and the per-user series limit on Tenants dashboard. #1613
 * [CHANGE] Dashboards: Slow-queries dashboard now uses `user` label from logs instead of `org_id`. #1634
+* [CHANGE] Dashboards: changed all Grafana dashboards UIDs to not conflict with Cortex ones, to let people install both while migrating from Cortex to Mimir: #1801 #1808
+  * Alertmanager from `a76bee5913c97c918d9e56a3cc88cc28` to `b0d38d318bbddd80476246d4930f9e55`
+  * Alertmanager Resources from `68b66aed90ccab448009089544a8d6c6` to `a6883fb22799ac74479c7db872451092`
+  * Compactor from `9c408e1d55681ecb8a22c9fab46875cc` to `1b3443aea86db629e6efdb7d05c53823`
+  * Compactor Resources from `df9added6f1f4332f95848cca48ebd99` to `09a5c49e9cdb2f2b24c6d184574a07fd`
+  * Config from `61bb048ced9817b2d3e07677fb1c6290` to `5d9d0b4724c0f80d68467088ec61e003`
+  * Object Store from `d5a3a4489d57c733b5677fb55370a723` to `e1324ee2a434f4158c00a9ee279d3292`
+  * Overrides from `b5c95fee2e5e7c4b5930826ff6e89a12` to `1e2c358600ac53f09faea133f811b5bb`
+  * Queries from `d9931b1054053c8b972d320774bb8f1d` to `b3abe8d5c040395cc36615cb4334c92d`
+  * Reads from `8d6ba60eccc4b6eedfa329b24b1bd339` to `e327503188913dc38ad571c647eef643`
+  * Reads Networking from `c0464f0d8bd026f776c9006b05910000` to `54b2a0a4748b3bd1aefa92ce5559a1c2`
+  * Reads Resources from `2fd2cda9eea8d8af9fbc0a5960425120` to `cc86fd5aa9301c6528986572ad974db9`
+  * Rollout Progress from `7544a3a62b1be6ffd919fc990ab8ba8f` to `7f0b5567d543a1698e695b530eb7f5de`
+  * Ruler from `44d12bcb1f95661c6ab6bc946dfc3473` to `631e15d5d85afb2ca8e35d62984eeaa0`
+  * Scaling from `88c041017b96856c9176e07cf557bdcf` to `64bbad83507b7289b514725658e10352`
+  * Slow queries from `e6f3091e29d2636e3b8393447e925668` to `6089e1ce1e678788f46312a0a1e647e6`
+  * Tenants from `35fa247ce651ba189debf33d7ae41611` to `35fa247ce651ba189debf33d7ae41611`
+  * Top Tenants from `bc6e12d4fe540e4a1785b9d3ca0ffdd9` to `bc6e12d4fe540e4a1785b9d3ca0ffdd9`
+  * Writes from `0156f6d15aa234d452a33a4f13c838e3` to `8280707b8f16e7b87b840fc1cc92d4c5`
+  * Writes Networking from `681cd62b680b7154811fe73af55dcfd4` to `978c1cb452585c96697a238eaac7fe2d`
+  * Writes Resources from `c0464f0d8bd026f776c9006b0591bb0b` to `bc9160e50b52e89e0e49c840fea3d379`
 * [FEATURE] Alerts: added the following alerts on `mimir-continuous-test` tool: #1676
   - `MimirContinuousTestNotRunningOnWrites`
   - `MimirContinuousTestNotRunningOnReads`
@@ -77,12 +135,14 @@
 * [ENHANCEMENT] Playbooks: Add Alertmanager suggestions for `MimirRequestErrors` and `MimirRequestLatency` #1702
 * [ENHANCEMENT] Dashboards: Allow custom datasources. #1749
 * [ENHANCEMENT] Dashboards: Add config option `gateway_enabled` (defaults to `true`) to disable gateway panels from dashboards. #1761
+* [ENHANCEMENT] Dashboards: Extend Top tenants dashboard with queries for tenants with highest sample rate, discard rate, and discard rate growth. #1842
+* [ENHANCEMENT] Dashboards: Show ingestion rate limit and rule group limit on Tenants dashboard. #1845
 * [BUGFIX] Dashboards: Fix "Failed evaluation rate" panel on Tenants dashboard. #1629
 * [BUGFIX] Honor the configured `per_instance_label` in all dashboards and alerts. #1697
 
 ### Jsonnet
 
-* [FEATURE] Added support for `mimir-continuous-test`. To deploy `mimir-continuous-test` you can use the following configuration: #1675
+* [FEATURE] Added support for `mimir-continuous-test`. To deploy `mimir-continuous-test` you can use the following configuration: #1675 #1850
   ```jsonnet
   _config+: {
     continuous_test_enabled: true,
@@ -95,6 +155,7 @@
 * [ENHANCEMENT] Added `node_selector` configuration option to select Kubernetes nodes where Mimir should run. #1596
 * [ENHANCEMENT] Alertmanager: Added a `PodDisruptionBudget` of `withMaxUnavailable = 1`, to ensure we maintain quorum during rollouts. #1683
 * [ENHANCEMENT] Store-gateway anti-affinity can now be enabled/disabled using `store_gateway_allow_multiple_replicas_on_same_node` configuration key. #1730
+* [ENHANCEMENT] Added `store_gateway_zone_a_args`, `store_gateway_zone_b_args` and `store_gateway_zone_c_args` configuration options. #1807
 * [BUGFIX] Pass primary and secondary multikv stores via CLI flags. Introduced new `multikv_switch_primary_secondary` config option to flip primary and secondary in runtime config.
 
 ### Mimirtool
@@ -104,7 +165,7 @@
 ### Tools
 
 * [FEATURE] Added a `markblocks` tool that creates `no-compact` and `delete` marks for the blocks. #1551
-* [FEATURE] Added `mimir-continuous-test` tool to continuously run smoke tests on live Mimir clusters. #1535 #1540 #1653 #1603 #1630 #1691 #1675 #1676 #1692 #1706 #1709 #1775 #1777 #1778
+* [FEATURE] Added `mimir-continuous-test` tool to continuously run smoke tests on live Mimir clusters. #1535 #1540 #1653 #1603 #1630 #1691 #1675 #1676 #1692 #1706 #1709 #1775 #1777 #1778 #1795
 * [FEATURE] Added `mimir-rules-action` GitHub action, located at `operations/mimir-rules-action/`, used to lint, prepare, verify, diff, and sync rules to a Mimir cluster. #1723
 
 ## 2.0.0
