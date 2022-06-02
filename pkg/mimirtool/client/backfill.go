@@ -55,7 +55,11 @@ func (c *MimirClient) backfillBlock(ctx context.Context, dpath string, logger lo
 
 	level.Info(logger).Log("msg", "Making request to start block backfill", "user", c.id, "block_id", blockID)
 
-	res, err := c.doRequest(fmt.Sprintf("/api/v1/upload/block/%s", blockID), http.MethodPost, nil, -1)
+	payload, err := json.Marshal(blockMeta)
+	if err != nil {
+		return errors.Wrap(err, "failed to JSON encode payload")
+	}
+	res, err := c.doRequest(fmt.Sprintf("/api/v1/upload/block/%s", blockID), http.MethodPost, bytes.NewBuffer(payload), int64(len(payload)))
 	if err != nil {
 		return errors.Wrap(err, "request to start backfill failed")
 	}
@@ -107,7 +111,7 @@ func (c *MimirClient) backfillBlock(ctx context.Context, dpath string, logger lo
 		return errors.Wrapf(err, "failed to traverse %q", dpath)
 	}
 
-	payload, err := json.Marshal(blockMeta)
+	payload, err = json.Marshal(blockMeta)
 	if err != nil {
 		return errors.Wrap(err, "failed to JSON encode payload")
 	}
