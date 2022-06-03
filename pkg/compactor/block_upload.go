@@ -35,9 +35,9 @@ const tmpMetaFilename = block.MetaFilename + ".temp"
 // The query parameter uploadComplete (true or false, default false) controls whether the
 // upload should be completed or not.
 //
-// Starting the uploading of a block means to upload meta.json and verify that the upload can go ahead.
+// Starting the uploading of a block means to upload meta file and verify that the upload can go ahead.
 // In practice this means to check that the (complete) block isn't already in block storage,
-// and that meta.json is valid.
+// and that meta file is valid.
 func (c *MultitenantCompactor) HandleBlockUpload(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	blockID := vars["block"]
@@ -60,58 +60,58 @@ func (c *MultitenantCompactor) HandleBlockUpload(w http.ResponseWriter, r *http.
 	logger = log.With(logger, "block", blockID)
 
 	if r.URL.Query().Get("uploadComplete") == "true" {
-		c.completeBlockUpload(ctx, w, r, logger, tenantID, bULID)
+		err = c.completeBlockUpload(ctx, r, logger, tenantID, bULID)
 	} else {
-		c.createBlockUpload(ctx, w, r, logger, tenantID, bULID)
+		err = c.createBlockUpload(ctx, r, logger, tenantID, bULID)
 	}
+	if err != nil {
+		var httpErr httpError
+		if errors.As(err, &httpErr) {
+			level.Warn(logger).Log("msg", httpErr.message, "err", err)
+			http.Error(w, httpErr.message, httpErr.statusCode)
+			return
+		}
+
+		level.Error(logger).Log("msg", "an unexpected error occurred", "err", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
-func (c *MultitenantCompactor) createBlockUpload(ctx context.Context, w http.ResponseWriter, r *http.Request,
-	logger log.Logger, tenantID string, blockID ulid.ULID) {
+func (c *MultitenantCompactor) createBlockUpload(ctx context.Context, r *http.Request,
+	logger log.Logger, tenantID string, blockID ulid.ULID) error {
 	level.Debug(logger).Log("msg", "starting block upload")
 
 	bkt := bucket.NewUserBucketClient(tenantID, c.bucketClient, c.cfgProvider)
 
 	exists, err := bkt.Exists(ctx, path.Join(blockID.String(), block.MetaFilename))
 	if err != nil {
-		level.Error(logger).Log("msg", "failed to check existence of meta.json in object storage",
-			"err", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+		return errors.Wrap(err, fmt.Sprintf("failed to check existence of %s in object storage", block.MetaFilename))
 	}
 	if exists {
 		level.Debug(logger).Log("msg", "complete block already exists in object storage")
-		http.Error(w, "block already exists in object storage", http.StatusConflict)
-		return
+		return httpError{
+			message:    "block already exists in object storage",
+			statusCode: http.StatusConflict,
+		}
 	}
 
 	dec := json.NewDecoder(r.Body)
 	var meta metadata.Meta
 	if err := dec.Decode(&meta); err != nil {
-		http.Error(w, "malformed request body", http.StatusBadRequest)
-		return
+		return httpError{
+			message:    "malformed request body",
+			statusCode: http.StatusBadRequest,
+		}
 	}
 
 	if err := c.sanitizeMeta(logger, tenantID, blockID, &meta); err != nil {
-		var eBadReq errBadRequest
-		if errors.As(err, &eBadReq) {
-			level.Warn(logger).Log("msg", eBadReq.message)
-			http.Error(w, eBadReq.message, http.StatusBadRequest)
-			return
-		}
-
-		level.Error(logger).Log("msg", fmt.Sprintf("failed to sanitize %s", block.MetaFilename), "err", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	if err := c.uploadMeta(ctx, logger, meta, blockID, tenantID, tmpMetaFilename, bkt); err != nil {
-		level.Error(logger).Log("msg", fmt.Sprintf("failed to upload %s", tmpMetaFilename), "err", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
+	return c.uploadMeta(ctx, logger, meta, blockID, tenantID, tmpMetaFilename, bkt)
 }
 
 // UploadBlockFile handles requests for uploading block files.
@@ -213,54 +213,35 @@ func (c *MultitenantCompactor) UploadBlockFile(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusOK)
 }
 
-func (c *MultitenantCompactor) completeBlockUpload(ctx context.Context, w http.ResponseWriter, r *http.Request,
-	logger log.Logger, tenantID string, blockID ulid.ULID) {
+func (c *MultitenantCompactor) completeBlockUpload(ctx context.Context, r *http.Request,
+	logger log.Logger, tenantID string, blockID ulid.ULID) error {
 	level.Debug(logger).Log("msg", "received request to complete block upload", "content_length", r.ContentLength)
 
 	bkt := bucket.NewUserBucketClient(tenantID, c.bucketClient, c.cfgProvider)
 
 	rdr, err := bkt.Get(ctx, path.Join(blockID.String(), tmpMetaFilename))
 	if err != nil {
-		level.Error(logger).Log("msg", fmt.Sprintf("failed to download %s from object storage", tmpMetaFilename),
-			"err", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+		return errors.Wrap(err, fmt.Sprintf("failed to download %s from object storage", tmpMetaFilename))
 	}
 	dec := json.NewDecoder(rdr)
 	var meta metadata.Meta
 	if err := dec.Decode(&meta); err != nil {
-		level.Error(logger).Log("msg", fmt.Sprintf("failed to decode %s", block.MetaFilename), "err", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+		return errors.Wrap(err, fmt.Sprintf("failed to decode %s", block.MetaFilename))
 	}
 
 	level.Debug(logger).Log("msg", "completing block upload", "files", len(meta.Thanos.Files))
 
-	// Upload meta.json so block is considered complete
+	// Upload meta file so block is considered complete
 	if err := c.uploadMeta(ctx, logger, meta, blockID, tenantID, block.MetaFilename, bkt); err != nil {
-		level.Error(logger).Log("msg", fmt.Sprintf("failed to upload %s", block.MetaFilename), "err", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	if err := bkt.Delete(ctx, path.Join(blockID.String(), tmpMetaFilename)); err != nil {
-		level.Error(logger).Log("msg", fmt.Sprintf("failed to delete %s from block in object storage", tmpMetaFilename),
-			"err", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+		return errors.Wrap(err, fmt.Sprintf("failed to delete %s from block in object storage", tmpMetaFilename))
 	}
 
 	level.Debug(logger).Log("msg", "successfully completed block upload")
-
-	w.WriteHeader(http.StatusOK)
-}
-
-type errBadRequest struct {
-	message string
-}
-
-func (e errBadRequest) Error() string {
-	return e.message
+	return nil
 }
 
 func (c *MultitenantCompactor) sanitizeMeta(logger log.Logger, tenantID string, blockID ulid.ULID,
@@ -290,7 +271,10 @@ func (c *MultitenantCompactor) sanitizeMeta(logger log.Logger, tenantID string, 
 	if len(rejLbls) > 0 {
 		level.Warn(logger).Log("msg", fmt.Sprintf("rejecting unsupported external label(s) in %s", block.MetaFilename),
 			"labels", strings.Join(rejLbls, ","))
-		return errBadRequest{message: fmt.Sprintf("unsupported external label(s): %s", strings.Join(rejLbls, ","))}
+		return httpError{
+			message:    fmt.Sprintf("unsupported external label(s): %s", strings.Join(rejLbls, ",")),
+			statusCode: http.StatusBadRequest,
+		}
 	}
 
 	// Mark block source
@@ -313,6 +297,15 @@ func (c *MultitenantCompactor) uploadMeta(ctx context.Context, logger log.Logger
 	}
 
 	return nil
+}
+
+type httpError struct {
+	message    string
+	statusCode int
+}
+
+func (e httpError) Error() string {
+	return e.message
 }
 
 type bodyReader struct {
