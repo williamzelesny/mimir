@@ -44,7 +44,9 @@ const (
 	MetricMetadataHelpTooLong       ID = "help-too-long"
 	MetricMetadataUnitTooLong       ID = "unit-too-long"
 
-	MaxQueryLength ID = "max-query-length"
+	MaxQueryLength       ID = "max-query-length"
+	RequestRateLimited   ID = "request-rate-limited"
+	IngestionRateLimited ID = "ingestion-rate-limited"
 )
 
 // Message returns the provided msg, appending the error id.
@@ -56,4 +58,8 @@ func (id ID) Message(msg string) string {
 // which configuration flag to use to change the limit.
 func (id ID) MessageWithLimitConfig(flag, msg string) string {
 	return fmt.Sprintf("%s (%s%s). You can adjust the related per-tenant limit by configuring -%s, or by contacting your service administrator.", msg, errPrefix, id, flag)
+}
+
+func (id ID) MessageWith2LimitConfig(flag, flag2, msg string) string {
+	return fmt.Sprintf("%s (%s%s). You can adjust the related per-tenant limits by configuring -%s and -%s, or by contacting your service administrator.", msg, errPrefix, id, flag, flag2)
 }

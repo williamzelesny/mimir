@@ -1306,6 +1306,14 @@ Mimir has a limit on the query length.
 This limit is applied to partial queries, after they've split (according to time) by the query-frontend. This limit protects the system’s stability from potential abuse or mistakes.
 You can configure the limit on a per-tenant basis by using the `-store.max-query-length` option (or `max_query_length` in the runtime configuration).
 
+### err-mimir-request-rate-limited
+
+TBA
+
+### err-mimir-ingestion-rate-limited
+
+TBA
+
 ## Mimir routes by path
 
 **Write path**:
