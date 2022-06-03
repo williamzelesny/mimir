@@ -27,6 +27,8 @@ import (
 
 	"github.com/grafana/mimir/pkg/mimirpb"
 	"github.com/grafana/mimir/pkg/util"
+	"github.com/grafana/mimir/pkg/util/globalerror"
+	"github.com/grafana/mimir/pkg/util/validation"
 )
 
 var (
@@ -434,7 +436,7 @@ func (h *haTracker) checkReplica(ctx context.Context, userID, cluster, replica s
 	h.electedLock.Unlock()
 	// If we have reached the limit for number of clusters, error out now.
 	if limit := h.limits.MaxHAClusters(userID); limit > 0 && nClusters+1 > limit {
-		return tooManyClustersError{limit: limit}
+		return tooManyClustersError{limit: limit, actual: nClusters}
 	}
 
 	err := h.updateKVStore(ctx, userID, cluster, replica, now)
@@ -524,11 +526,14 @@ func (e replicasNotMatchError) IsOperationAborted() bool {
 }
 
 type tooManyClustersError struct {
-	limit int
+	limit  int
+	actual int
 }
 
 func (e tooManyClustersError) Error() string {
-	return fmt.Sprintf("too many HA clusters (limit: %d)", e.limit)
+	return globalerror.TooManyHAClusters.MessageWithLimitConfig(
+		validation.HATrackerMaxClustersFlag,
+		fmt.Sprintf("too many HA clusters (limit: %d, actual: %d)", e.limit, e.actual))
 }
 
 // Needed for errors.Is to work properly.

@@ -602,7 +602,7 @@ func TestHAClustersLimit(t *testing.T) {
 	assert.NoError(t, t1.checkReplica(context.Background(), userID, "b", "b1", now))
 	waitForClustersUpdate(t, 2, t1, userID)
 
-	assert.EqualError(t, t1.checkReplica(context.Background(), userID, "c", "c1", now), "too many HA clusters (limit: 2)")
+	assert.EqualError(t, t1.checkReplica(context.Background(), userID, "c", "c1", now), tooManyClustersError{limit: 2, actual: 2}.Error())
 
 	// Move time forward, and make sure that checkReplica for existing cluster works fine.
 	now = now.Add(5 * time.Second) // higher than "update timeout"
@@ -627,7 +627,7 @@ func TestHAClustersLimit(t *testing.T) {
 	waitForClustersUpdate(t, 2, t1, userID)
 
 	// But yet another cluster doesn't.
-	assert.EqualError(t, t1.checkReplica(context.Background(), userID, "a", "a2", now), "too many HA clusters (limit: 2)")
+	assert.EqualError(t, t1.checkReplica(context.Background(), userID, "a", "a2", now), tooManyClustersError{limit: 2, actual: 2}.Error())
 
 	now = now.Add(5 * time.Second)
 
@@ -651,11 +651,11 @@ func waitForClustersUpdate(t *testing.T, expected int, tr *haTracker, userID str
 }
 
 func TestTooManyClustersError(t *testing.T) {
-	var err error = tooManyClustersError{limit: 10}
+	var err error = tooManyClustersError{limit: 10, actual: 10}
 	assert.True(t, errors.Is(err, tooManyClustersError{}))
 	assert.True(t, errors.Is(err, &tooManyClustersError{}))
 
-	err = &tooManyClustersError{limit: 20}
+	err = &tooManyClustersError{limit: 20, actual: 20}
 	assert.True(t, errors.Is(err, tooManyClustersError{}))
 	assert.True(t, errors.Is(err, &tooManyClustersError{}))
 
@@ -673,7 +673,7 @@ func TestReplicasNotMatchError(t *testing.T) {
 	assert.True(t, errors.Is(err, replicasNotMatchError{}))
 	assert.True(t, errors.Is(err, &replicasNotMatchError{}))
 
-	err = tooManyClustersError{limit: 10}
+	err = tooManyClustersError{limit: 10, actual: 10}
 	assert.False(t, errors.Is(err, replicasNotMatchError{}))
 	assert.False(t, errors.Is(err, &replicasNotMatchError{}))
 }
