@@ -60,12 +60,12 @@ func (c *MultitenantCompactor) HandleBlockUpload(w http.ResponseWriter, r *http.
 	logger := util_log.WithContext(ctx, c.logger)
 	logger = log.With(logger, "block", blockID)
 
-	bkt := bucket.NewUserBucketClient(tenantID, c.bucketClient, c.cfgProvider)
+	userBkt := bucket.NewUserBucketClient(tenantID, c.bucketClient, c.cfgProvider)
 
 	if r.URL.Query().Get("uploadComplete") == "true" {
-		err = c.completeBlockUpload(ctx, r, logger, bkt, tenantID, bULID)
+		err = c.completeBlockUpload(ctx, r, logger, userBkt, tenantID, bULID)
 	} else {
-		err = c.createBlockUpload(ctx, r, logger, bkt, tenantID, bULID)
+		err = c.createBlockUpload(ctx, r, logger, userBkt, tenantID, bULID)
 	}
 	if err != nil {
 		var httpErr httpError
@@ -84,10 +84,10 @@ func (c *MultitenantCompactor) HandleBlockUpload(w http.ResponseWriter, r *http.
 }
 
 func (c *MultitenantCompactor) createBlockUpload(ctx context.Context, r *http.Request,
-	logger log.Logger, bkt objstore.Bucket, tenantID string, blockID ulid.ULID) error {
+	logger log.Logger, userBkt objstore.Bucket, tenantID string, blockID ulid.ULID) error {
 	level.Debug(logger).Log("msg", "starting block upload")
 
-	exists, err := bkt.Exists(ctx, path.Join(blockID.String(), block.MetaFilename))
+	exists, err := userBkt.Exists(ctx, path.Join(blockID.String(), block.MetaFilename))
 	if err != nil {
 		return errors.Wrap(err, fmt.Sprintf("failed to check existence of %s in object storage", block.MetaFilename))
 	}
@@ -111,7 +111,7 @@ func (c *MultitenantCompactor) createBlockUpload(ctx context.Context, r *http.Re
 		return err
 	}
 
-	return c.uploadMeta(ctx, logger, meta, blockID, tenantID, tmpMetaFilename, bkt)
+	return c.uploadMeta(ctx, logger, meta, blockID, tmpMetaFilename, userBkt)
 }
 
 // UploadBlockFile handles requests for uploading block files.
@@ -160,10 +160,10 @@ func (c *MultitenantCompactor) UploadBlockFile(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	bkt := bucket.NewUserBucketClient(tenantID, c.bucketClient, c.cfgProvider)
+	userBkt := bucket.NewUserBucketClient(tenantID, c.bucketClient, c.cfgProvider)
 
 	metaPath := path.Join(blockID, tmpMetaFilename)
-	exists, err := bkt.Exists(ctx, metaPath)
+	exists, err := userBkt.Exists(ctx, metaPath)
 	if err != nil {
 		level.Error(logger).Log("msg", fmt.Sprintf("failed to check existence of %s in object storage", tmpMetaFilename),
 			"err", err)
@@ -184,7 +184,7 @@ func (c *MultitenantCompactor) UploadBlockFile(w http.ResponseWriter, r *http.Re
 	reader := bodyReader{
 		r: r,
 	}
-	if err := bkt.Upload(ctx, dst, reader); err != nil {
+	if err := userBkt.Upload(ctx, dst, reader); err != nil {
 		level.Error(logger).Log("msg", "failed uploading block file to bucket",
 			"destination", dst, "err", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -208,10 +208,10 @@ func decodeMeta(r io.Reader, name string) (metadata.Meta, error) {
 }
 
 func (c *MultitenantCompactor) completeBlockUpload(ctx context.Context, r *http.Request,
-	logger log.Logger, bkt objstore.Bucket, tenantID string, blockID ulid.ULID) error {
+	logger log.Logger, userBkt objstore.Bucket, tenantID string, blockID ulid.ULID) error {
 	level.Debug(logger).Log("msg", "received request to complete block upload", "content_length", r.ContentLength)
 
-	rdr, err := bkt.Get(ctx, path.Join(blockID.String(), tmpMetaFilename))
+	rdr, err := userBkt.Get(ctx, path.Join(blockID.String(), tmpMetaFilename))
 	if err != nil {
 		return errors.Wrap(err, fmt.Sprintf("failed to download %s from object storage", tmpMetaFilename))
 	}
@@ -223,11 +223,11 @@ func (c *MultitenantCompactor) completeBlockUpload(ctx context.Context, r *http.
 	level.Debug(logger).Log("msg", "completing block upload", "files", len(meta.Thanos.Files))
 
 	// Upload meta file so block is considered complete
-	if err := c.uploadMeta(ctx, logger, meta, blockID, tenantID, block.MetaFilename, bkt); err != nil {
+	if err := c.uploadMeta(ctx, logger, meta, blockID, block.MetaFilename, userBkt); err != nil {
 		return err
 	}
 
-	if err := bkt.Delete(ctx, path.Join(blockID.String(), tmpMetaFilename)); err != nil {
+	if err := userBkt.Delete(ctx, path.Join(blockID.String(), tmpMetaFilename)); err != nil {
 		return errors.Wrap(err, fmt.Sprintf("failed to delete %s from block in object storage", tmpMetaFilename))
 	}
 
@@ -275,7 +275,7 @@ func (c *MultitenantCompactor) sanitizeMeta(logger log.Logger, tenantID string, 
 }
 
 func (c *MultitenantCompactor) uploadMeta(ctx context.Context, logger log.Logger, meta metadata.Meta,
-	blockID ulid.ULID, tenantID, name string, bkt objstore.Bucket) error {
+	blockID ulid.ULID, name string, userBkt objstore.Bucket) error {
 	dst := path.Join(blockID.String(), name)
 	level.Debug(logger).Log("msg", fmt.Sprintf("uploading %s to bucket", name), "dst", dst)
 	buf := bytes.NewBuffer(nil)
@@ -283,7 +283,7 @@ func (c *MultitenantCompactor) uploadMeta(ctx context.Context, logger log.Logger
 	if err := enc.Encode(meta); err != nil {
 		return errors.Wrap(err, "failed to encode block metadata")
 	}
-	if err := bkt.Upload(ctx, dst, buf); err != nil {
+	if err := userBkt.Upload(ctx, dst, buf); err != nil {
 		return errors.Wrapf(err, "failed uploading %s to bucket", name)
 	}
 
