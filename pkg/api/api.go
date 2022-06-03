@@ -360,17 +360,8 @@ func (a *API) RegisterCompactor(c *compactor.MultitenantCompactor) {
 		{Desc: "Ring status", Path: "/compactor/ring"},
 	})
 	a.RegisterRoute("/compactor/ring", http.HandlerFunc(c.RingHandler), false, true, "GET", "POST")
-	// Endpoint to handle requests for starting or completion of block backfilling.
-	// The query parameter uploadComplete (true or false, default false) controls whether the
-	// upload should be completed or not.
-	//
-	// Starting the uploading of a block means to upload meta.json and verify that the upload can go ahead.
-	// In practice this means to check that the (complete) block isn't already in block storage,
-	// and that meta.json is valid.
 	a.RegisterRoute("/api/v1/upload/block/{block}", http.HandlerFunc(c.HandleBlockUpload), true,
 		false, http.MethodPost)
-	// Endpoint to handle requests for uploading block files. It takes the mandatory query parameter
-	// "path", specifying the file's destination path.
 	a.RegisterRoute("/api/v1/upload/block/{block}/files", http.HandlerFunc(c.UploadBlockFile),
 		true, false, http.MethodPost)
 }
