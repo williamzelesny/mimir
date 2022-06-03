@@ -28,7 +28,7 @@ import (
 	util_log "github.com/grafana/mimir/pkg/util/log"
 )
 
-const tmpMetaFilename = block.MetaFilename + ".temp"
+const tmpMetaFilename = "uploading-" + block.MetaFilename
 
 // HandleBlockUpload handles requests for starting or completing block uploads.
 //
