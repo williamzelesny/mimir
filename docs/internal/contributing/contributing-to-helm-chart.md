@@ -10,9 +10,7 @@
 
 Grafana Mimir Helm Chart follows a standard GitHub pull request workflow. If you're unfamiliar with this workflow, read the very helpful [Understanding the GitHub flow](https://guides.github.com/introduction/flow/) guide from GitHub.
 
-You are welcome to create draft PRs at any stage of readiness - this
-can be helpful to ask for assistance or to develop an idea. But before
-a piece of work is finished it should:
+You are welcome to create draft PRs at any stage of readiness - this can be helpful to ask for assistance or to develop an idea. But before a piece of work is finished it should:
 
 - Be organised into one or more commits, each of which has a commit message that describes all changes made in that commit ('why' more than 'what' - we can read the diffs to see the code that changed).
 - Each commit should build towards the whole - don't leave in back-tracks and mistakes that you later corrected.
