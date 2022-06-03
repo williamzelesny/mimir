@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"path"
 	"strings"
@@ -98,9 +99,8 @@ func (c *MultitenantCompactor) createBlockUpload(ctx context.Context, r *http.Re
 		}
 	}
 
-	dec := json.NewDecoder(r.Body)
-	var meta metadata.Meta
-	if err := dec.Decode(&meta); err != nil {
+	meta, err := decodeMeta(r.Body, "request body")
+	if err != nil {
 		return httpError{
 			message:    "malformed request body",
 			statusCode: http.StatusBadRequest,
@@ -175,22 +175,6 @@ func (c *MultitenantCompactor) UploadBlockFile(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	rdr, err := bkt.Get(ctx, metaPath)
-	if err != nil {
-		level.Error(logger).Log("msg", fmt.Sprintf("failed to download %s from object storage", tmpMetaFilename),
-			"err", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-	dec := json.NewDecoder(rdr)
-	var meta metadata.Meta
-	if err := dec.Decode(&meta); err != nil {
-		level.Error(logger).Log("msg", fmt.Sprintf("failed to decode %s", tmpMetaFilename),
-			"err", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
 	// TODO: Verify that upload path and length correspond to file index
 
 	dst := path.Join(blockID, pth)
@@ -213,6 +197,16 @@ func (c *MultitenantCompactor) UploadBlockFile(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusOK)
 }
 
+func decodeMeta(r io.Reader, name string) (metadata.Meta, error) {
+	dec := json.NewDecoder(r)
+	var meta metadata.Meta
+	if err := dec.Decode(&meta); err != nil {
+		return meta, errors.Wrap(err, fmt.Sprintf("failed decoding %s", name))
+	}
+
+	return meta, nil
+}
+
 func (c *MultitenantCompactor) completeBlockUpload(ctx context.Context, r *http.Request,
 	logger log.Logger, bkt objstore.Bucket, tenantID string, blockID ulid.ULID) error {
 	level.Debug(logger).Log("msg", "received request to complete block upload", "content_length", r.ContentLength)
@@ -221,10 +215,9 @@ func (c *MultitenantCompactor) completeBlockUpload(ctx context.Context, r *http.
 	if err != nil {
 		return errors.Wrap(err, fmt.Sprintf("failed to download %s from object storage", tmpMetaFilename))
 	}
-	dec := json.NewDecoder(rdr)
-	var meta metadata.Meta
-	if err := dec.Decode(&meta); err != nil {
-		return errors.Wrap(err, fmt.Sprintf("failed to decode %s", block.MetaFilename))
+	meta, err := decodeMeta(rdr, tmpMetaFilename)
+	if err != nil {
+		return err
 	}
 
 	level.Debug(logger).Log("msg", "completing block upload", "files", len(meta.Thanos.Files))
