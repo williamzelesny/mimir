@@ -59,10 +59,12 @@ func (c *MultitenantCompactor) HandleBlockUpload(w http.ResponseWriter, r *http.
 	logger := util_log.WithContext(ctx, c.logger)
 	logger = log.With(logger, "block", blockID)
 
+	bkt := bucket.NewUserBucketClient(tenantID, c.bucketClient, c.cfgProvider)
+
 	if r.URL.Query().Get("uploadComplete") == "true" {
-		err = c.completeBlockUpload(ctx, r, logger, tenantID, bULID)
+		err = c.completeBlockUpload(ctx, r, logger, bkt, tenantID, bULID)
 	} else {
-		err = c.createBlockUpload(ctx, r, logger, tenantID, bULID)
+		err = c.createBlockUpload(ctx, r, logger, bkt, tenantID, bULID)
 	}
 	if err != nil {
 		var httpErr httpError
@@ -81,10 +83,8 @@ func (c *MultitenantCompactor) HandleBlockUpload(w http.ResponseWriter, r *http.
 }
 
 func (c *MultitenantCompactor) createBlockUpload(ctx context.Context, r *http.Request,
-	logger log.Logger, tenantID string, blockID ulid.ULID) error {
+	logger log.Logger, bkt objstore.Bucket, tenantID string, blockID ulid.ULID) error {
 	level.Debug(logger).Log("msg", "starting block upload")
-
-	bkt := bucket.NewUserBucketClient(tenantID, c.bucketClient, c.cfgProvider)
 
 	exists, err := bkt.Exists(ctx, path.Join(blockID.String(), block.MetaFilename))
 	if err != nil {
@@ -155,7 +155,7 @@ func (c *MultitenantCompactor) UploadBlockFile(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if r.Body == nil || r.ContentLength == 0 {
+	if r.ContentLength == 0 {
 		http.Error(w, "file cannot be empty", http.StatusBadRequest)
 		return
 	}
@@ -203,7 +203,7 @@ func (c *MultitenantCompactor) UploadBlockFile(w http.ResponseWriter, r *http.Re
 	if err := bkt.Upload(ctx, dst, reader); err != nil {
 		level.Error(logger).Log("msg", "failed uploading block file to bucket",
 			"destination", dst, "err", err)
-		http.Error(w, "failed uploading block file to bucket", http.StatusBadGateway)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -214,10 +214,8 @@ func (c *MultitenantCompactor) UploadBlockFile(w http.ResponseWriter, r *http.Re
 }
 
 func (c *MultitenantCompactor) completeBlockUpload(ctx context.Context, r *http.Request,
-	logger log.Logger, tenantID string, blockID ulid.ULID) error {
+	logger log.Logger, bkt objstore.Bucket, tenantID string, blockID ulid.ULID) error {
 	level.Debug(logger).Log("msg", "received request to complete block upload", "content_length", r.ContentLength)
-
-	bkt := bucket.NewUserBucketClient(tenantID, c.bucketClient, c.cfgProvider)
 
 	rdr, err := bkt.Get(ctx, path.Join(blockID.String(), tmpMetaFilename))
 	if err != nil {
