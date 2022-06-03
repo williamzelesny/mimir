@@ -305,6 +305,10 @@ type bodyReader struct {
 
 // ObjectSize implements thanos.ObjectSizer.
 func (r bodyReader) ObjectSize() (int64, error) {
+	if r.r.ContentLength < 0 {
+		return 0, fmt.Errorf("unknown size")
+	}
+
 	return r.r.ContentLength, nil
 }
 
