@@ -3,7 +3,7 @@
 ## Differences to general workflow
 
 - The workflow is tailored to the helm chart.
-- Changelog is in a the chart itself [operations/helm/charts/mimir-distributed/CHANGELOG.md](https://github.com/grafana/mimir/blob/main/operations/helm/charts/mimir-distributed/CHANGELOG.md).
+- Changelog is in the chart itself [operations/helm/charts/mimir-distributed/CHANGELOG.md](https://github.com/grafana/mimir/blob/main/operations/helm/charts/mimir-distributed/CHANGELOG.md).
 - Version is set in the chart itself [operations/helm/charts/mimir-distributed/Chart.yaml](https://github.com/grafana/mimir/blob/main/operations/helm/charts/mimir-distributed/Chart.yaml).
 
 ## Workflow
